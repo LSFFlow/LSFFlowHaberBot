@@ -5,9 +5,10 @@ name: DXY & Gold Haber Botu
 
 on:
   schedule:
-    # Her 15 dakikada bir calisir (UTC zaman dilimine gore).
-    # Daha seyrek istersen, ornegin her 30 dk icin "*/30 * * * *" yap.
-    - cron: "*/15 * * * *"
+    # Her 5 dakikada bir calisir (UTC zaman dilimine gore). GitHub Actions
+    # ucretsiz planda tam saatinde garanti calismayabilir, birkac dakika
+    # gecikme olabilir.
+    - cron: "*/5 * * * *"
   workflow_dispatch: {}   # Bu satir sayesinde "Run workflow" butonuyla manuel de calistirabilirsin
 
 jobs:
