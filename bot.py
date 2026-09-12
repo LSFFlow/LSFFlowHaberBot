@@ -22,6 +22,8 @@ import re
 import time
 import feedparser
 import requests
+from datetime import timezone, timedelta
+from dateutil import parser as date_parser
 
 # ---------------------------------------------------------------------------
 # AYARLAR
@@ -35,18 +37,19 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 # olarak ver. Normal kanal/grup icin bos birak.
 MESSAGE_THREAD_ID = os.environ.get("TELEGRAM_MESSAGE_THREAD_ID", "")
 
-# Taranacak RSS kaynaklari (istedigin kadar ekleyebilirsin)
+# Taranacak RSS kaynaklari (Turkce finans haberleri)
 RSS_FEEDS = [
-    "https://www.investing.com/rss/news_285.rss",   # Investing.com - Forex News
-    "https://www.investing.com/rss/news_25.rss",     # Investing.com - Commodities News
-    "https://www.fxstreet.com/rss/news",             # FXStreet genel haber akisi
-    "https://www.forexlive.com/feed/news",           # ForexLive
+    "https://tr.investing.com/rss/news_1.rss",       # Investing.com TR - Doviz Haberleri
+    "https://tr.investing.com/rss/news_11.rss",      # Investing.com TR - Emtia & Vadeli Islem Haberleri
+    "https://tr.investing.com/rss/forex.rss",        # Investing.com TR - Doviz Analiz ve Gorusleri
+    "https://tr.investing.com/rss/commodities.rss",  # Investing.com TR - Emtia Analiz ve Gorusleri
 ]
 
 # Haber basligi/ozetinde aranacak anahtar kelimeler (kucuk harfe cevrilip kontrol edilir)
 KEYWORDS = [
-    "dxy", "dollar index", "us dollar index", "dolar endeksi",
-    "xauusd", "gold", "altin", "gold price", "spot gold",
+    "dxy", "dolar endeksi", "dolar endeks", "amerikan dolar endeksi",
+    "xauusd", "altin", "altın", "ons altin", "ons altın", "gram altin", "gram altın",
+    "spot altin", "spot altın",
 ]
 
 # Zaten gonderilen haberlerin linklerini tuttugumuz dosya (tekrar gondermemek icin)
@@ -54,6 +57,15 @@ STATE_FILE = os.path.join(os.path.dirname(__file__), "sent_links.json")
 
 # Tek seferde en fazla kac haber gonderilsin (spam onlemek icin)
 MAX_MESSAGES_PER_RUN = 8
+
+# --- Ekonomik Takvim (ForexFactory ucretsiz veri kaynagi) ---
+CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+# Sadece bu para birimine ait olaylari takip et (DXY ve altin en cok USD verilerinden etkilenir)
+CALENDAR_COUNTRY = "USD"
+# Sadece bu etki seviyesindeki (kirmizi=High) olaylari gonder
+CALENDAR_IMPACT = "High"
+# Turkiye saat dilimi (UTC+3)
+TURKEY_TZ = timezone(timedelta(hours=3))
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +124,56 @@ def fetch_matching_entries():
     return matched
 
 
+def fetch_high_impact_calendar_events():
+    """ForexFactory'nin ucretsiz haftalik takviminden yuksek etkili (kirmizi)
+    USD olaylarini ceker."""
+    try:
+        response = requests.get(CALENDAR_URL, timeout=15)
+        response.raise_for_status()
+        events = response.json()
+    except Exception as e:
+        print(f"[UYARI] Ekonomik takvim alinamadi: {e}")
+        return []
+
+    important = []
+    for event in events:
+        if event.get("country") != CALENDAR_COUNTRY:
+            continue
+        if event.get("impact") != CALENDAR_IMPACT:
+            continue
+        important.append(event)
+    return important
+
+
+def calendar_event_key(event):
+    # Ayni olayi tekrar gondermemek icin benzersiz bir anahtar olusturuyoruz
+    return f"calendar:{event.get('country')}:{event.get('title')}:{event.get('date')}"
+
+
+def format_calendar_message(event):
+    title = event.get("title", "Bilinmeyen veri")
+    country = event.get("country", "")
+    forecast = event.get("forecast") or "—"
+    previous = event.get("previous") or "—"
+    raw_date = event.get("date", "")
+
+    try:
+        dt = date_parser.parse(raw_date)
+        dt_tr = dt.astimezone(TURKEY_TZ)
+        time_display = dt_tr.strftime("%d %B %Y, %H:%M") + " (TR saati)"
+    except Exception:
+        time_display = raw_date
+
+    text = (
+        f"🔴 <b>Yüksek Etkili Ekonomik Veri</b>\n\n"
+        f"📌 {title} ({country})\n"
+        f"🕒 {time_display}\n"
+        f"📈 Beklenti: {forecast}\n"
+        f"📉 Önceki: {previous}"
+    )
+    return text
+
+
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
@@ -131,9 +193,10 @@ def send_telegram_message(text):
 def format_message(entry):
     title = entry["title"]
     summary = entry["summary"]
-    link = entry["link"]
     source = entry["source"]
-    text = f"📊 <b>{title}</b>\n\n{summary}\n\n🔗 <a href=\"{link}\">Habere git</a>\n📰 Kaynak: {source}"
+    # Sadece basligi ve ozetin en onemli kismini duz metin olarak gonder,
+    # link/URL eklemiyoruz.
+    text = f"📊 <b>{title}</b>\n\n{summary}\n\n📰 {source}"
     return text
 
 
@@ -150,14 +213,29 @@ def main():
 
     sent_links = load_sent_links()
     matched_entries = fetch_matching_entries()
+    calendar_events = fetch_high_impact_calendar_events()
 
     new_entries = [e for e in matched_entries if e["link"] and e["link"] not in sent_links]
+    new_calendar_events = [
+        e for e in calendar_events if calendar_event_key(e) not in sent_links
+    ]
 
-    if not new_entries:
-        print("Yeni haber yok.")
+    if not new_entries and not new_calendar_events:
+        print("Yeni haber/veri yok.")
         return
 
     sent_count = 0
+
+    for event in new_calendar_events:
+        if sent_count >= MAX_MESSAGES_PER_RUN:
+            break
+        message = format_calendar_message(event)
+        ok = send_telegram_message(message)
+        if ok:
+            sent_links.add(calendar_event_key(event))
+            sent_count += 1
+            time.sleep(1.5)
+
     for entry in new_entries:
         if sent_count >= MAX_MESSAGES_PER_RUN:
             break
@@ -169,7 +247,7 @@ def main():
             time.sleep(1.5)  # Telegram rate-limit'e takilmamak icin kucuk bekleme
 
     save_sent_links(sent_links)
-    print(f"{sent_count} yeni haber gonderildi.")
+    print(f"{sent_count} yeni haber/veri gonderildi.")
 
 
 if __name__ == "__main__":

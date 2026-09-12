@@ -1,7 +1,17 @@
 # DXY & XAUUSD Telegram Haber Botu
 
-RSS kaynaklarindan DXY (Dolar Endeksi) ve XAUUSD (Altin) ile ilgili haberleri
-tarayip Telegram kanalina otomatik gonderen basit bir bot.
+Turkce finans kaynaklarindan DXY (Dolar Endeksi) ve XAUUSD (Altin) ile ilgili
+haber/analizleri, ayrica ForexFactory'nin ucretsiz ekonomik takviminden
+yuksek etkili (kirmizi) USD verilerini Telegram kanalina otomatik gonderen
+bir bot.
+
+## Neler gonderiliyor?
+1. **Haber/Analiz**: Investing.com Turkiye'nin Doviz ve Emtia haber/analiz
+   bolumlerinden "dolar endeksi", "altin", "ons altin" gibi kelimeler gecen
+   icerikler (link olmadan, sadece baslik + kisa ozet + kaynak adi).
+2. **Ekonomik Takvim**: ForexFactory'nin haftalik ucretsiz takviminden sadece
+   **USD** para birimine ait ve **Yuksek (kirmizi)** etkili veriler - saati,
+   beklenti ve onceki degeriyle birlikte (Turkiye saatine cevrilmis olarak).
 
 ## 1) Telegram Bot Olustur
 1. Telegram'da **@BotFather**'i ac, `/newbot` yaz, adim adim ilerle.
