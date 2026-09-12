@@ -1,0 +1,41 @@
+# BU DOSYAYI repo icinde su yola koy: .github/workflows/dxy-gold-bot.yml
+# (GitHub bu klasor yapisini otomatik olarak "Actions" sekmesinde tanir)
+
+name: DXY & Gold Haber Botu
+
+on:
+  schedule:
+    # Her 15 dakikada bir calisir (UTC zaman dilimine gore).
+    # Daha seyrek istersen, ornegin her 30 dk icin "*/30 * * * *" yap.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}   # Bu satir sayesinde "Run workflow" butonuyla manuel de calistirabilirsin
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repo'yu indir
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Bagimliliklari yukle
+        run: pip install -r requirements.txt
+
+      - name: Botu calistir
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+        run: python bot.py
+
+      - name: Gonderilen linkleri commitle (tekrar gondermemek icin)
+        run: |
+          git config user.name "dxy-gold-bot"
+          git config user.email "actions@github.com"
+          git add sent_links.json
+          git diff --staged --quiet || git commit -m "sent_links guncellendi"
+          git push
