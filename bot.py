@@ -22,11 +22,12 @@ import re
 import time
 import urllib.parse
 import hashlib
+import html
 import feedparser
 import requests
 from datetime import datetime, timezone, timedelta
 from dateutil import parser as date_parser
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator
 
 # ---------------------------------------------------------------------------
 # AYARLAR
@@ -173,8 +174,10 @@ def trim_to_sentence(text, max_length):
 
 
 def clean_html(raw_html):
-    """Basit bir HTML etiketi temizleyici (ozet metinlerinde gecebiliyor)."""
-    return re.sub(r"<[^>]+>", "", raw_html or "").strip()
+    """Basit bir HTML etiketi temizleyici (ozet metinlerinde gecebiliyor)
+    ve &nbsp; gibi HTML entity'lerini de normal karakterlere cevirir."""
+    without_tags = re.sub(r"<[^>]+>", "", raw_html or "")
+    return html.unescape(without_tags).strip()
 
 
 def is_entry_recent(entry):
@@ -348,16 +351,27 @@ def send_telegram_message(text):
 
 
 def translate_to_turkish(text):
-    """Metni otomatik olarak Turkce'ye cevirir. Zaten Turkce ise ya da
-    ceviri servisi basarisiz olursa orijinal metni dondurur."""
+    """Metni otomatik olarak Turkce'ye cevirir. Once Google Translate'i
+    dener, o basarisiz olursa yedek olarak MyMemory servisini dener.
+    Ikisi de basarisiz olursa (ya da metin zaten Turkce ise) orijinal
+    metni dondurur - boylece ceviri hatasi mesaj kaybina yol acmaz."""
     if not text:
         return text
     try:
         translated = GoogleTranslator(source="auto", target="tr").translate(text)
-        return translated or text
+        if translated:
+            return translated
     except Exception as e:
-        print(f"[UYARI] Ceviri basarisiz, orijinal metin kullanilacak: {e}")
-        return text
+        print(f"[UYARI] Google Translate basarisiz: {e}")
+
+    try:
+        translated = MyMemoryTranslator(source="en-US", target="tr-TR").translate(text)
+        if translated:
+            return translated
+    except Exception as e:
+        print(f"[UYARI] Yedek ceviri servisi de basarisiz: {e}")
+
+    return text
 
 
 def format_message(entry):
