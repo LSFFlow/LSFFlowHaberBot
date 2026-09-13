@@ -216,6 +216,20 @@ def normalize_title_key(title):
     return "titlehash:" + hashlib.md5(normalized.encode("utf-8")).hexdigest()
 
 
+def strip_trailing_source(text, source_name):
+    """Google News gibi kaynaklar basligin/ozetin sonuna kaynak adini
+    ekliyor (ornek: 'Haber basligi - Reuters' ya da 'Haber basligi  Reuters').
+    Bunu temizler."""
+    if not text or not source_name:
+        return text
+    pattern = r"\s*[-–—]?\s*" + re.escape(source_name) + r"\s*$"
+    return re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+
+
+def normalize_for_compare(text):
+    return re.sub(r"[^\w]", "", (text or "").lower())
+
+
 def fetch_matching_entries():
     matched = []
     for feed_url in RSS_FEEDS:
@@ -253,9 +267,22 @@ def fetch_matching_entries():
             combined_text = f"{title} {summary}"
             if matches_keywords(combined_text, allowed_keywords):
                 source_label = "Reuters" if is_reuters_feed else feed.feed.get("title", feed_url)
+
+                # Google News gibi kaynaklar basligin/ozetin sonuna kaynak
+                # adini ekliyor, bunu temizliyoruz.
+                clean_title = strip_trailing_source(title, source_label)
+                clean_summary = strip_trailing_source(
+                    trim_to_sentence(summary, 380), source_label
+                )
+
+                # Ozet, basligin tekrari gibiyse (Google News'te sik gorulur)
+                # ozeti bos birakiyoruz ki mesajda ayni cumle iki kere gecmesin.
+                if normalize_for_compare(clean_summary) == normalize_for_compare(clean_title):
+                    clean_summary = ""
+
                 matched.append({
-                    "title": title,
-                    "summary": trim_to_sentence(summary, 380),
+                    "title": clean_title,
+                    "summary": clean_summary,
                     "link": link,
                     "source": source_label,
                     "title_key": normalize_title_key(title),
@@ -376,17 +403,18 @@ def translate_to_turkish(text):
 
 def format_message(entry):
     title = translate_to_turkish(entry["title"])
-    summary = translate_to_turkish(entry["summary"])
+    summary = translate_to_turkish(entry["summary"]) if entry["summary"] else ""
 
     # Ceviri basarisiz olduysa (None donduyse) bu haberi hic gonderme
-    if title is None or summary is None:
+    if title is None or (entry["summary"] and summary is None):
         return None
 
     source = entry["source"]
-    # Sadece basligi ve ozetin en onemli kismini duz metin olarak gonder,
-    # link/URL eklemiyoruz. Ingilizce kaynaklardan gelen metin otomatik
-    # olarak Turkce'ye cevrilir.
-    text = f"📊 <b>{title}</b>\n\n{summary}\n\n📰 {source}"
+    # Ozet yoksa (baslikla ayniydi, temizlendi) sadece basligi goster
+    if summary:
+        text = f"📊 <b>{title}</b>\n\n{summary}\n\n📰 {source}"
+    else:
+        text = f"📊 <b>{title}</b>\n\n📰 {source}"
     return text
 
 
