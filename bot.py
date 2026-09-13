@@ -53,24 +53,29 @@ RSS_FEEDS = [
 ]
 
 # Reuters resmi ucretsiz RSS sunmuyor, bu yuzden Google News'in Reuters'a
-# ozel arama sonuclarini RSS olarak kullaniyoruz. Sadece belirlenen
-# jeopolitik/makro konularla ilgili Reuters haberlerini getirir.
-REUTERS_TOPICS = [
-    "Trump", "Powell", "Federal Reserve", "FOMC", "Treasury",
-    "bond yield", "US10Y", "US02Y", "CPI", "Core CPI", "PPI", "NFP",
-    "inflation", "tariff", "trade war", "Iran", "Israel",
-    "Strait of Hormuz", "Hormuz", "oil supply", "OPEC", "Saudi Arabia",
-    "Houthi", "gold", "dollar index",
+# ozel arama sonuclarini RSS olarak kullaniyoruz. Cok uzun/karmasik tek bir
+# sorgu bazen Google'da hataya (500) yol actigi icin konulari kucuk
+# gruplara bolup birden fazla ayri sorgu kullaniyoruz.
+REUTERS_TOPIC_GROUPS = [
+    ["Trump", "Powell", "Federal Reserve", "FOMC", "Treasury", "bond yield"],
+    ["US10Y", "US02Y", "CPI", "Core CPI", "PPI", "NFP", "inflation"],
+    ["tariff", "trade war", "Iran", "Israel", "Strait of Hormuz", "Hormuz"],
+    ["oil supply", "OPEC", "Saudi Arabia", "Houthi", "gold", "dollar index"],
 ]
-_reuters_query = "site:reuters.com (" + " OR ".join(
-    f'"{t}"' if " " in t else t for t in REUTERS_TOPICS
-) + ")"
-REUTERS_GOOGLE_NEWS_URL = (
-    "https://news.google.com/rss/search?q="
-    + urllib.parse.quote(_reuters_query)
-    + "&hl=en-US&gl=US&ceid=US:en"
-)
-RSS_FEEDS.append(REUTERS_GOOGLE_NEWS_URL)
+
+REUTERS_GOOGLE_NEWS_URLS = []
+for _topic_group in REUTERS_TOPIC_GROUPS:
+    _query = "site:reuters.com (" + " OR ".join(
+        f'"{t}"' if " " in t else t for t in _topic_group
+    ) + ")"
+    _url = (
+        "https://news.google.com/rss/search?q="
+        + urllib.parse.quote(_query)
+        + "&hl=en-US&gl=US&ceid=US:en"
+    )
+    REUTERS_GOOGLE_NEWS_URLS.append(_url)
+
+RSS_FEEDS.extend(REUTERS_GOOGLE_NEWS_URLS)
 
 # Finansal anahtar kelimeler - genel kaynaklarda (Investing, FXStreet,
 # ForexLive) bunlardan biri gecmeyen haberler alakasiz sayilir ve atlanir.
@@ -183,6 +188,19 @@ def is_entry_recent(entry):
     return age <= timedelta(hours=MAX_NEWS_AGE_HOURS)
 
 
+def is_error_page_content(text):
+    """RSS yerine yanlislikla bir hata sayfasi (500, 404 vb.) donmus mu diye
+    kontrol eder."""
+    if not text:
+        return False
+    lowered = text.lower()
+    error_markers = [
+        "error 500", "server error", "that's an error", "that’s an error",
+        "error 404", "page not found", "bad gateway", "service unavailable",
+    ]
+    return any(marker in lowered for marker in error_markers)
+
+
 def fetch_matching_entries():
     matched = []
     for feed_url in RSS_FEEDS:
@@ -192,11 +210,16 @@ def fetch_matching_entries():
             print(f"[UYARI] {feed_url} okunamadi: {e}")
             continue
 
+        # Feed bozuksa (parse hatasi) veya hic entry yoksa atla
+        if getattr(feed, "bozo", False) and not feed.entries:
+            print(f"[UYARI] {feed_url} bozuk/parse edilemedi, atlaniyor.")
+            continue
+
         # Reuters (Google News) kaynagi zaten sorguda daraltildigi icin
         # jeopolitik kelimeleri de kabul ediyoruz. Diger genel kaynaklarda
         # sadece dogrudan DXY/Altin ile ilgili haberleri kabul ediyoruz,
         # boylece alakasiz haberler (spam) elenmis olur.
-        is_reuters_feed = feed_url == REUTERS_GOOGLE_NEWS_URL
+        is_reuters_feed = feed_url in REUTERS_GOOGLE_NEWS_URLS
         allowed_keywords = KEYWORDS if is_reuters_feed else FINANCIAL_KEYWORDS
 
         for entry in feed.entries:
@@ -206,6 +229,11 @@ def fetch_matching_entries():
             title = entry.get("title", "")
             summary = clean_html(entry.get("summary", ""))
             link = entry.get("link", "")
+
+            # Hata sayfasi icerigi yanlislikla haber gibi algilanmasin
+            if is_error_page_content(title) or is_error_page_content(summary):
+                print(f"[UYARI] Hata sayfasi icerigi tespit edildi, atlaniyor: {title}")
+                continue
 
             combined_text = f"{title} {summary}"
             if matches_keywords(combined_text, allowed_keywords):
