@@ -353,8 +353,8 @@ def send_telegram_message(text):
 def translate_to_turkish(text):
     """Metni otomatik olarak Turkce'ye cevirir. Once Google Translate'i
     dener, o basarisiz olursa yedek olarak MyMemory servisini dener.
-    Ikisi de basarisiz olursa (ya da metin zaten Turkce ise) orijinal
-    metni dondurur - boylece ceviri hatasi mesaj kaybina yol acmaz."""
+    Ikisi de basarisiz olursa None doner - bu durumda mesaj hic
+    gonderilmeyecek (Ingilizce olarak gitmesin diye)."""
     if not text:
         return text
     try:
@@ -371,12 +371,17 @@ def translate_to_turkish(text):
     except Exception as e:
         print(f"[UYARI] Yedek ceviri servisi de basarisiz: {e}")
 
-    return text
+    return None
 
 
 def format_message(entry):
     title = translate_to_turkish(entry["title"])
     summary = translate_to_turkish(entry["summary"])
+
+    # Ceviri basarisiz olduysa (None donduyse) bu haberi hic gonderme
+    if title is None or summary is None:
+        return None
+
     source = entry["source"]
     # Sadece basligi ve ozetin en onemli kismini duz metin olarak gonder,
     # link/URL eklemiyoruz. Ingilizce kaynaklardan gelen metin otomatik
@@ -498,6 +503,13 @@ def main():
         if sent_count >= MAX_MESSAGES_PER_RUN:
             break
         message = format_message(entry)
+        if message is None:
+            # Ceviri basarisiz oldu, bu haberi atla (Ingilizce gitmesin)
+            print(f"[UYARI] Ceviri basarisiz oldugu icin atlandi: {entry['title']}")
+            # Tekrar tekrar denenmesin diye yine de 'gorulmus' say
+            sent_links.add(entry["link"])
+            sent_links.add(entry["title_key"])
+            continue
         ok = send_telegram_message(message)
         if ok:
             sent_links.add(entry["link"])
