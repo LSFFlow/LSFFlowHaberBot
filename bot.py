@@ -218,12 +218,19 @@ def normalize_title_key(title):
 
 def strip_trailing_source(text, source_name):
     """Google News gibi kaynaklar basligin/ozetin sonuna kaynak adini
-    ekliyor (ornek: 'Haber basligi - Reuters' ya da 'Haber basligi  Reuters').
-    Bunu temizler."""
-    if not text or not source_name:
+    ekliyor (ornek: 'Haber basligi - Reuters', 'Haber basligi  Reuters'
+    ya da 'Haber basligi: reuters.com'). Bunu temizler."""
+    if not text:
         return text
-    pattern = r"\s*[-–—]?\s*" + re.escape(source_name) + r"\s*$"
-    return re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+    cleaned = text
+    if source_name:
+        pattern = r"\s*[-–—]?\s*" + re.escape(source_name) + r"\s*$"
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+    # 'reuters.com', 'investing.com' gibi domain seklindeki eklentileri
+    # (basinda ':', '-' vb. olabilir) de temizle
+    domain_pattern = r"[:\-–—]\s*[a-z0-9][a-z0-9\-]*(\.[a-z]{2,}){1,2}\s*$"
+    cleaned = re.sub(domain_pattern, "", cleaned, flags=re.IGNORECASE).strip()
+    return cleaned
 
 
 def normalize_for_compare(text):
