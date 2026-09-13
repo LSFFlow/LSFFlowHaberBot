@@ -21,6 +21,7 @@ import json
 import re
 import time
 import urllib.parse
+import hashlib
 import feedparser
 import requests
 from datetime import datetime, timezone, timedelta
@@ -204,6 +205,14 @@ def is_error_page_content(text):
     return any(marker in lowered for marker in error_markers)
 
 
+def normalize_title_key(title):
+    """Ayni haberi (farkli kaynaklardan/linklerden gelse bile) tekrar
+    gondermemek icin basligi normallestirip benzersiz bir anahtar uretir."""
+    normalized = re.sub(r"\s+", " ", (title or "").strip().lower())
+    normalized = re.sub(r"[^\w\s]", "", normalized)
+    return "titlehash:" + hashlib.md5(normalized.encode("utf-8")).hexdigest()
+
+
 def fetch_matching_entries():
     matched = []
     for feed_url in RSS_FEEDS:
@@ -240,11 +249,13 @@ def fetch_matching_entries():
 
             combined_text = f"{title} {summary}"
             if matches_keywords(combined_text, allowed_keywords):
+                source_label = "Reuters" if is_reuters_feed else feed.feed.get("title", feed_url)
                 matched.append({
                     "title": title,
                     "summary": trim_to_sentence(summary, 380),
                     "link": link,
-                    "source": feed.feed.get("title", feed_url),
+                    "source": source_label,
+                    "title_key": normalize_title_key(title),
                 })
     return matched
 
@@ -377,7 +388,20 @@ def main():
     matched_entries = fetch_matching_entries()
     calendar_events = fetch_high_impact_calendar_events()
 
-    new_entries = [e for e in matched_entries if e["link"] and e["link"] not in sent_links]
+    # Ayni haberi (farkli linkle de olsa) tekrar gondermemek icin hem link
+    # hem baslik bazli kontrol yapiyoruz. Ayni calistirma icinde de
+    # (birden fazla feed ayni haberi getirebilir) tekrari eliyoruz.
+    new_entries = []
+    seen_title_keys_this_run = set()
+    for e in matched_entries:
+        if not e["link"]:
+            continue
+        if e["link"] in sent_links or e["title_key"] in sent_links:
+            continue
+        if e["title_key"] in seen_title_keys_this_run:
+            continue
+        seen_title_keys_this_run.add(e["title_key"])
+        new_entries.append(e)
 
     # --- Ekonomik takvim icin 3 asamali bildirim mantigi ---
     calendar_messages_to_send = []  # (unique_key, mesaj_metni)
@@ -433,6 +457,7 @@ def main():
         for entry in new_entries:
             if entry["link"]:
                 sent_links.add(entry["link"])
+                sent_links.add(entry["title_key"])
         for unique_key, _ in calendar_messages_to_send:
             sent_links.add(unique_key)
         sent_links.add(FIRST_RUN_MARKER)
@@ -462,6 +487,7 @@ def main():
         ok = send_telegram_message(message)
         if ok:
             sent_links.add(entry["link"])
+            sent_links.add(entry["title_key"])
             sent_count += 1
             time.sleep(1.5)  # Telegram rate-limit'e takilmamak icin kucuk bekleme
 
