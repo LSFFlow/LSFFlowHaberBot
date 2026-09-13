@@ -57,7 +57,7 @@ RSS_FEEDS = [
 # sorgu bazen Google'da hataya (500) yol actigi icin konulari kucuk
 # gruplara bolup birden fazla ayri sorgu kullaniyoruz.
 REUTERS_TOPIC_GROUPS = [
-    ["Trump", "Powell", "Federal Reserve", "FOMC", "Treasury", "bond yield"],
+    ["Trump", "Powell", "Federal Reserve", "FOMC", "Treasury", "bond yield", "interest rate"],
     ["US10Y", "US02Y", "CPI", "Core CPI", "PPI", "NFP", "inflation"],
     ["tariff", "trade war", "Iran", "Israel", "Strait of Hormuz", "Hormuz"],
     ["oil supply", "OPEC", "Saudi Arabia", "Houthi", "gold", "dollar index"],
@@ -99,6 +99,9 @@ GEOPOLITICAL_KEYWORDS = [
     "inflation", "tariff", "trade war", "iran", "israel",
     "strait of hormuz", "hormuz", "oil supply", "opec", "saudi arabia",
     "houthi", "gold", "dollar",
+    "interest rate", "rate decision", "rate hike", "rate cut", "yields",
+    "faiz", "faiz karari", "faiz kararı", "faiz artisi", "faiz artışı",
+    "faiz indirimi", "tahvil",
 ]
 
 # Geriye donuk uyumluluk icin (gerekirse baska yerde kullanilabilir)
