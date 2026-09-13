@@ -401,6 +401,33 @@ def translate_to_turkish(text):
     return None
 
 
+# Etki seviyesi belirlemede kullanilan anahtar kelime gruplari
+HIGH_IMPACT_MARKERS = [
+    "cpi", "core cpi", "ppi", "nfp", "fomc", "rate decision",
+    "interest rate", "faiz karari", "faiz kararı", "tahvil getirisi",
+    "pipeline outage", "oil supply", "opec", "attack", "strike", "war",
+    "invasion", "sanction", "shutdown", "recession", "faiz artisi",
+    "faiz artışı", "faiz indirimi", "rate hike", "rate cut",
+    "closes strait", "blocks strait", "boğazını kapat",
+]
+MEDIUM_IMPACT_MARKERS = [
+    "trump", "powell", "says", "said", "threat", "warn", "could", "may",
+    "considering", "plans", "iran", "israel", "hormuz", "houthi",
+    "saudi arabia", "tariff", "trade war", "treasury", "federal reserve",
+]
+
+
+def determine_impact_level(text):
+    """Basligi/ozeti anahtar kelimelere gore Dusuk/Orta/Yuksek olarak
+    etiketler. Bu bir AI analizi degil, basit kural bazli bir tahmindir."""
+    text_lower = (text or "").lower()
+    if any(marker in text_lower for marker in HIGH_IMPACT_MARKERS):
+        return "🔴 Yüksek"
+    if any(marker in text_lower for marker in MEDIUM_IMPACT_MARKERS):
+        return "🟡 Orta"
+    return "🟢 Düşük"
+
+
 def format_message(entry):
     title = translate_to_turkish(entry["title"])
     summary = translate_to_turkish(entry["summary"]) if entry["summary"] else ""
@@ -410,11 +437,12 @@ def format_message(entry):
         return None
 
     source = entry["source"]
+    impact = determine_impact_level(f"{entry['title']} {entry['summary']}")
     # Ozet yoksa (baslikla ayniydi, temizlendi) sadece basligi goster
     if summary:
-        text = f"📊 <b>{title}</b>\n\n{summary}\n\n📰 {source}"
+        text = f"📊 <b>{title}</b>\n\nEtki: {impact}\n\n{summary}\n\n📰 {source}"
     else:
-        text = f"📊 <b>{title}</b>\n\n📰 {source}"
+        text = f"📊 <b>{title}</b>\n\nEtki: {impact}\n\n📰 {source}"
     return text
 
 
