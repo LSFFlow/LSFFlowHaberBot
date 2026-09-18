@@ -127,12 +127,21 @@ FIRST_RUN_MARKER = "__initialized__"
 
 # --- Ekonomik Takvim (ForexFactory ucretsiz veri kaynagi) ---
 CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+CALENDAR_URL_FALLBACK = "https://cdn-nfs.faireconomy.media/ff_calendar_thisweek.json"
 # Sadece bu para birimine ait olaylari takip et (DXY ve altin en cok USD verilerinden etkilenir)
 CALENDAR_COUNTRY = "USD"
 # Sadece bu etki seviyesindeki (kirmizi=High) olaylari gonder
 CALENDAR_IMPACT = "High"
 # Turkiye saat dilimi (UTC+3)
 TURKEY_TZ = timezone(timedelta(hours=3))
+
+# ForexFactory'nin ucretsiz servisinin gizli bir istek limiti var - cok sik
+# istek atarsak (5-15 dk'da bir) bir sure sonra hata sayfasi donmeye
+# basliyor ve "actual" (aciklanan deger) bilgisini hic yakalayamiyoruz.
+# Bunu onlemek icin veriyi onbellekleyip en fazla bu sure (dakika) icinde
+# bir kez taze cekiyoruz, arada onbellekten okuyoruz.
+CALENDAR_CACHE_FILE = os.path.join(os.path.dirname(__file__), "calendar_cache.json")
+CALENDAR_CACHE_MAX_AGE_MINUTES = 15
 
 
 # ---------------------------------------------------------------------------
@@ -297,16 +306,68 @@ def fetch_matching_entries():
     return matched
 
 
+def load_calendar_cache():
+    if os.path.exists(CALENDAR_CACHE_FILE):
+        try:
+            with open(CALENDAR_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return None
+    return None
+
+
+def save_calendar_cache(events):
+    payload = {
+        "cached_at": datetime.now(timezone.utc).isoformat(),
+        "events": events,
+    }
+    try:
+        with open(CALENDAR_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+    except IOError as e:
+        print(f"[UYARI] Takvim onbellegi yazilamadi: {e}")
+
+
 def fetch_high_impact_calendar_events():
     """ForexFactory'nin ucretsiz haftalik takviminden yuksek etkili (kirmizi)
-    USD olaylarini ceker."""
-    try:
-        response = requests.get(CALENDAR_URL, timeout=15)
-        response.raise_for_status()
-        events = response.json()
-    except Exception as e:
-        print(f"[UYARI] Ekonomik takvim alinamadi: {e}")
-        return []
+    USD olaylarini ceker. Servisin gizli bir istek limiti oldugu icin
+    veriyi onbellekleyip CALENDAR_CACHE_MAX_AGE_MINUTES gecmeden tekrar
+    network istegi atmiyoruz."""
+    cache = load_calendar_cache()
+    if cache:
+        try:
+            cached_at = datetime.fromisoformat(cache["cached_at"])
+            age = datetime.now(timezone.utc) - cached_at
+            if age <= timedelta(minutes=CALENDAR_CACHE_MAX_AGE_MINUTES):
+                events = cache["events"]
+                return [
+                    e for e in events
+                    if e.get("country") == CALENDAR_COUNTRY and e.get("impact") == CALENDAR_IMPACT
+                ]
+        except Exception:
+            pass  # Onbellek bozuksa yeniden cekmeye devam et
+
+    events = None
+    for url in (CALENDAR_URL, CALENDAR_URL_FALLBACK):
+        try:
+            response = requests.get(url, timeout=15)
+            response.raise_for_status()
+            events = response.json()
+            break
+        except Exception as e:
+            print(f"[UYARI] Ekonomik takvim alinamadi ({url}): {e}")
+            continue
+
+    if events is None:
+        # Hem ana hem yedek kaynak basarisiz oldu. Eski onbellek varsa
+        # (bayat da olsa) onu kullanmaya devam edelim, hic veri kaybetmemek icin.
+        if cache and cache.get("events"):
+            print("[BILGI] Yeni veri alinamadi, eski onbellek kullaniliyor.")
+            events = cache["events"]
+        else:
+            return []
+    else:
+        save_calendar_cache(events)
 
     important = []
     for event in events:
