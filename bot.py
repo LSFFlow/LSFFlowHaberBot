@@ -337,8 +337,29 @@ def fetch_high_impact_calendar_events():
     if cache:
         try:
             cached_at = datetime.fromisoformat(cache["cached_at"])
-            age = datetime.now(timezone.utc) - cached_at
-            if age <= timedelta(minutes=CALENDAR_CACHE_MAX_AGE_MINUTES):
+            now_c = datetime.now(timezone.utc)
+            age = now_c - cached_at
+
+            # Aciklama saatine yakin (5 dk once - 45 dk sonra) ve henuz
+            # "actual" degeri dolmamis bir kirmizi USD olay varsa onbellegi
+            # kisa tut (~90 sn) ki aciklanan deger hemen yakalansin.
+            max_age = timedelta(minutes=CALENDAR_CACHE_MAX_AGE_MINUTES)
+            for e in cache.get("events", []):
+                if e.get("country") != CALENDAR_COUNTRY or e.get("impact") != CALENDAR_IMPACT:
+                    continue
+                if e.get("actual") not in (None, "", "N/A"):
+                    continue
+                try:
+                    et = date_parser.parse(e.get("date", ""))
+                    if et.tzinfo is None:
+                        et = et.replace(tzinfo=timezone.utc)
+                except Exception:
+                    continue
+                if timedelta(minutes=-45) <= (et - now_c) <= timedelta(minutes=5):
+                    max_age = timedelta(seconds=90)
+                    break
+
+            if age <= max_age:
                 events = cache["events"]
                 return [
                     e for e in events
